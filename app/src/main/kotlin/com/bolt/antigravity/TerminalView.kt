@@ -66,7 +66,9 @@ class TerminalView @JvmOverloads constructor(
     private fun setupTerminal() {
         executor.execute {
             try {
-                val process = ProcessBuilder("/system/bin/sh", "-i")
+                // Try to find a working shell, fallback if necessary
+                val shellPath = if (java.io.File("/system/bin/sh").exists()) "/system/bin/sh" else "sh"
+                val process = ProcessBuilder(shellPath, "-i")
                     .redirectErrorStream(true)
                     .start()
 
