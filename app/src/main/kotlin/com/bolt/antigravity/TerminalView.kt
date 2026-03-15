@@ -65,8 +65,11 @@ class TerminalView @JvmOverloads constructor(
             try {
                 val shellPath = if (java.io.File("/system/bin/sh").exists()) "/system/bin/sh" else "sh"
                 val process = ProcessBuilder(shellPath, "-i")
+                    .directory(context.filesDir) // Set working directory to app's sandbox
                     .redirectErrorStream(true)
                     .start()
+
+                updateUI("Environment initialized at ${context.filesDir}\n")
 
                 writer = BufferedWriter(OutputStreamWriter(process.outputStream))
                 val inputStream = process.inputStream
