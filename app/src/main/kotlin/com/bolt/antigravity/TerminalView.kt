@@ -2,11 +2,11 @@ package com.bolt.antigravity
 
 import android.content.Context
 import android.graphics.Color
-import android.text.Editable
-import android.text.TextWatcher
+import android.graphics.Typeface
 import android.util.AttributeSet
-import android.view.KeyEvent
+import android.view.Gravity
 import android.view.View
+import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -21,22 +21,24 @@ class TerminalView @JvmOverloads constructor(
 ) : LinearLayout(context, attrs) {
 
     private val outputTextView = TextView(context).apply {
-        setTextColor(Color.GREEN)
+        setTextColor(Color.parseColor("#A6E22E")) // Monokai Green
         textSize = 12f
-        typeface = android.graphics.Typeface.MONOSPACE
-        setBackgroundColor(Color.parseColor("#1A1A1A"))
+        typeface = Typeface.MONOSPACE
+        setPadding(20, 20, 20, 20)
     }
 
     private val inputField = EditText(context).apply {
+        layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
         setTextColor(Color.WHITE)
         textSize = 12f
-        typeface = android.graphics.Typeface.MONOSPACE
-        setBackgroundColor(Color.TRANSPARENT)
-        hint = "> "
-        setHintTextColor(Color.GRAY)
+        typeface = Typeface.MONOSPACE
+        setBackgroundColor(Color.parseColor("#1A1A1A"))
+        hint = "Enter command..."
+        setHintTextColor(Color.DKGRAY)
         maxLines = 1
         inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-        imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+        imeOptions = EditorInfo.IME_ACTION_DONE
+        setPadding(20, 20, 20, 20)
     }
 
     private val scrollView = ScrollView(context).apply {
@@ -44,17 +46,12 @@ class TerminalView @JvmOverloads constructor(
         addView(outputTextView)
     }
 
-    private val executor = Executors.newSingleThreadExecutor()
+    private val executor = Executors.newFixedThreadPool(2)
     private var writer: BufferedWriter? = null
-
-    // Bolt Optimization: Efficient Ring Buffer for Terminal lines
-    private val maxLines = 150
-    private val lineBuffer = mutableListOf<String>()
 
     init {
         orientation = VERTICAL
-        setBackgroundColor(Color.parseColor("#1A1A1A"))
-        setPadding(16, 16, 16, 16)
+        setBackgroundColor(Color.BLACK)
 
         addView(scrollView)
         addView(inputField)
@@ -66,7 +63,6 @@ class TerminalView @JvmOverloads constructor(
     private fun setupTerminal() {
         executor.execute {
             try {
-                // Try to find a working shell, fallback if necessary
                 val shellPath = if (java.io.File("/system/bin/sh").exists()) "/system/bin/sh" else "sh"
                 val process = ProcessBuilder(shellPath, "-i")
                     .redirectErrorStream(true)
@@ -74,27 +70,30 @@ class TerminalView @JvmOverloads constructor(
 
                 writer = BufferedWriter(OutputStreamWriter(process.outputStream))
                 val inputStream = process.inputStream
-                val buffer = ByteArray(1024)
-                var bytesRead: Int
 
-                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                    val text = String(buffer, 0, bytesRead)
-                    updateUI(text)
+                // Bolt: High-performance reading loop
+                val reader = inputStream.bufferedReader()
+                var line: String?
+                while (reader.readLine().also { line = it } != null) {
+                    updateUI(line!! + "\n")
                 }
             } catch (e: Exception) {
-                updateUI("\nError: ${e.message}\n")
+                updateUI("Terminal Error: ${e.message}\n")
             }
         }
     }
 
     private fun setupInput() {
-        inputField.setOnEditorActionListener { _, _, event ->
-            val command = inputField.text.toString()
-            if (command.isNotEmpty()) {
-                sendCommand(command)
-                inputField.setText("")
-            }
-            true
+        inputField.setOnEditorActionListener { v, actionId, event ->
+            if (actionId == EditorInfo.IME_ACTION_DONE || actionId == EditorInfo.IME_ACTION_UNSPECIFIED) {
+                val command = inputField.text.toString()
+                if (command.isNotEmpty()) {
+                    updateUI("$ " + command + "\n")
+                    sendCommand(command)
+                    inputField.setText("")
+                }
+                true
+            } else false
         }
     }
 
@@ -104,28 +103,20 @@ class TerminalView @JvmOverloads constructor(
                 writer?.write(command + "\n")
                 writer?.flush()
             } catch (e: Exception) {
-                updateUI("\nFailed to send: ${e.message}\n")
+                updateUI("Failed to send: ${e.message}\n")
             }
         }
     }
 
     private fun updateUI(text: String) {
         post {
-            // Efficient append: avoid re-splitting entire history
-            lineBuffer.add(text)
-            if (lineBuffer.size > maxLines) {
-                lineBuffer.removeAt(0)
-                // Bolt Optimization: Hard-prune TextView to prevent memory leak and lag
-                val currentText = outputTextView.text
-                if (currentText.length > 5000) {
-                    outputTextView.text = currentText.substring(2000)
-                }
-            }
-
-            // Rebuild only when necessary, or just append
             outputTextView.append(text)
 
-            // Auto-scroll
+            // Limit buffer size to prevent memory bloat
+            if (outputTextView.length() > 10000) {
+                outputTextView.text = outputTextView.text.subSequence(5000, outputTextView.length())
+            }
+
             scrollView.post {
                 scrollView.fullScroll(View.FOCUS_DOWN)
             }
